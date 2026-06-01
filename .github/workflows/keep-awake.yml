@@ -1,0 +1,22 @@
+name: Keep app awake
+
+# Pings the deployed app every ~10 min so Render's free tier never sleeps.
+# The URL is stored in a repo variable named PING_URL (set after deploy).
+on:
+  schedule:
+    - cron: "*/10 * * * *"   # every 10 minutes
+  workflow_dispatch:          # allows manual run from the Actions tab
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping the app
+        run: |
+          URL="${{ vars.PING_URL }}"
+          if [ -z "$URL" ]; then
+            echo "PING_URL not set yet — skipping. (Set it after the app is deployed.)"
+            exit 0
+          fi
+          echo "Pinging $URL"
+          curl -sS -o /dev/null -w "HTTP %{http_code}\n" --max-time 60 "$URL" || true
