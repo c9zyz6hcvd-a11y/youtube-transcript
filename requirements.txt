@@ -1,0 +1,6 @@
+flask
+youtube-transcript-api
+google-genai
+python-docx
+reportlab
+gunicorn

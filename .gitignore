@@ -1,0 +1,9 @@
+# Local environment & secrets
+venv/
+start.sh
+.env
+*.pyc
+__pycache__/
+
+# OS / editor
+.DS_Store
