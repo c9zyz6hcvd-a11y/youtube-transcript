@@ -3,7 +3,55 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>YouTube Transcript</title>
+  <title>YouTube Transcript Extractor &amp; AI Summarizer — Free | YouTube 字幕擷取 + AI 摘要</title>
+  <meta name="description" content="Free online tool: extract the transcript of any YouTube video, then clean it up or summarize it with AI — English, 繁體中文（香港／台灣）, 簡體中文, 日本語, 한국어. Export to PDF, Word or text. No sign-up needed." />
+  {% if site_url %}<link rel="canonical" href="{{ site_url }}/" />{% endif %}
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="YouTube Transcript Extractor & AI Summarizer — Free" />
+  <meta property="og:description" content="Extract any YouTube transcript and summarize it with AI in 6 languages. Export PDF / Word. Free, no sign-up." />
+  {% if site_url %}<meta property="og:url" content="{{ site_url }}/" />{% endif %}
+  <meta name="twitter:card" content="summary" />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebApplication",
+        "name": "YouTube Transcript Extractor & AI Summarizer",
+        "applicationCategory": "UtilityApplication",
+        "operatingSystem": "Web",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "description": "Extract YouTube video transcripts and summarize them with AI in English, Traditional Chinese, Simplified Chinese, Japanese and Korean. Export to PDF, Word or plain text."
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "Is this YouTube transcript tool free?",
+            "acceptedAnswer": { "@type": "Answer", "text": "Yes. Extracting transcripts is unlimited and free. AI cleanup and summaries are free with a generous daily limit per user." }
+          },
+          {
+            "@type": "Question",
+            "name": "Which videos can be transcribed?",
+            "acceptedAnswer": { "@type": "Answer", "text": "Any YouTube video that has captions (manual or auto-generated). If the uploader disabled captions, no transcript is available." }
+          },
+          {
+            "@type": "Question",
+            "name": "Which languages are supported for AI summaries?",
+            "acceptedAnswer": { "@type": "Answer", "text": "English, Hong Kong Traditional Chinese, Taiwan Traditional Chinese, Simplified Chinese, Japanese and Korean. The source video can be in any language that has captions." }
+          },
+          {
+            "@type": "Question",
+            "name": "Do I need an account? Is my data stored?",
+            "acceptedAnswer": { "@type": "Answer", "text": "No account needed. Transcripts are processed on the fly and not stored on our servers; your history is kept only in your own browser." }
+          }
+        ]
+      }
+    ]
+  }
+  </script>
+  {% if adsense_client %}<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={{ adsense_client }}" crossorigin="anonymous"></script>{% endif %}
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -398,6 +446,41 @@
       line-height: 1;
     }
     .history-delete:hover { color: #ff6b6b; }
+
+    /* ── Info / FAQ / footer ── */
+    .info-section {
+      width: 100%;
+      max-width: 720px;
+      margin-top: 48px;
+      color: #aaa;
+      font-size: 0.9rem;
+      line-height: 1.65;
+    }
+    .info-section h2 { color: #ddd; font-size: 1.05rem; margin: 26px 0 10px; }
+    .info-section p  { margin-bottom: 10px; }
+    .info-section ol { margin: 0 0 10px 20px; }
+    .info-section details {
+      background: #161616;
+      border: 1px solid #262626;
+      border-radius: 8px;
+      padding: 10px 14px;
+      margin-bottom: 8px;
+    }
+    .info-section summary { cursor: pointer; color: #ccc; font-weight: 600; }
+    .info-section details p { margin: 8px 0 2px; }
+
+    .site-footer {
+      margin-top: 40px;
+      color: #555;
+      font-size: 0.8rem;
+      display: flex;
+      gap: 14px;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .site-footer a { color: #777; text-decoration: none; }
+    .site-footer a:hover { color: #bbb; }
   </style>
 </head>
 <body>
@@ -490,6 +573,48 @@
     </div>
     <div class="history-list" id="history-list"></div>
   </div>
+
+  <!-- About / FAQ (content for visitors + search engines) -->
+  <section class="info-section">
+    <h2>About this tool 關於呢個工具</h2>
+    <p>This free tool extracts the transcript (subtitles/captions) of any YouTube video, then uses AI to clean it up into a readable script or summarize it — in English, 繁體中文（香港／台灣）, 簡體中文, 日本語 or 한국어. Great for podcasts, lectures, interviews and long-form videos you don't have time to watch.</p>
+    <p>免費擷取任何 YouTube 影片嘅字幕逐字稿，再用 AI 整理成易讀文章或者摘要（支援港式廣東話書面語）。啱晒聽 podcast、長片、講座 — 唔使睇足全程都攞到重點。</p>
+
+    <h2>How to use 點用</h2>
+    <ol>
+      <li>Paste a YouTube link and press <b>Transcribe</b> — 貼上 YouTube 連結，撳 Transcribe</li>
+      <li>Pick a language, then choose <b>✦ AI 整理</b> (full cleanup), <b>⚡ 快速摘要</b> (quick summary) or <b>📋 詳細摘要</b> (detailed notes)</li>
+      <li>Copy the result, or export as <b>PDF / Word / .txt</b> — 一鍵匯出</li>
+    </ol>
+
+    <h2>FAQ 常見問題</h2>
+    <details>
+      <summary>Is it free? 免費㗎？</summary>
+      <p>Yes — extracting transcripts is unlimited. AI cleanup/summaries are free with a daily limit per user. 擷取字幕無限制；AI 功能每人每日有合理用量上限。</p>
+    </details>
+    <details>
+      <summary>Which videos work? 咩片用得？</summary>
+      <p>Any video with captions, manual or auto-generated. If the uploader disabled captions, there is no transcript to extract. 影片要有字幕（人手或自動生成）先用得。</p>
+    </details>
+    <details>
+      <summary>Do I need an account? Is my data stored? 要唔要登記？會唔會儲起我嘅嘢？</summary>
+      <p>No account needed. Transcripts are processed on the fly and not stored on our servers — your history lives only in your own browser. 唔使登記；逐字稿即時處理，唔會儲喺伺服器，「Recent」紀錄只存喺你自己部機。</p>
+    </details>
+    <details>
+      <summary>What's special about the Hong Kong Chinese output? 港式中文有咩特別？</summary>
+      <p>The AI rewrites transcripts in natural Hong Kong-style written Cantonese (廣東話書面語) — not stiff Mandarin-style 書面語. 出嚟係自然港式行文，唔係硬譯普通話腔。</p>
+    </details>
+    <details>
+      <summary>Why "No transcript found"? 點解話冇字幕？</summary>
+      <p>The video has captions disabled, or YouTube hasn't generated them yet. Try another video. 影片關咗字幕功能，或者 YouTube 未生成字幕。</p>
+    </details>
+  </section>
+
+  <footer class="site-footer">
+    <a href="/privacy">Privacy 私隱政策</a>
+    <a href="/terms">Terms 使用條款</a>
+    <span>© 2026 YouTube Transcript &amp; AI Summary</span>
+  </footer>
 
   <script>
     let data = null;

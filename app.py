@@ -23,6 +23,12 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 app = Flask(__name__)
 yt_api = YouTubeTranscriptApi()
 
+# ─── Site / monetisation config (all optional, via env vars) ──────────────────
+SITE_URL = os.environ.get("SITE_URL", "").rstrip("/")          # e.g. https://example.com
+ADSENSE_CLIENT = os.environ.get("ADSENSE_CLIENT", "")          # e.g. ca-pub-1234567890123456
+DAILY_AI_LIMIT = int(os.environ.get("DAILY_AI_LIMIT", "30"))   # AI calls per IP per day
+MAX_AI_INPUT_CHARS = int(os.environ.get("MAX_AI_INPUT_CHARS", "150000"))
+
 # ─── Register a CJK font for PDF output (covers Traditional + Cantonese) ──────
 # Prefer the bundled Noto Sans TC (embeds glyphs → works on any OS, incl. Linux
 # servers). Fall back to macOS system fonts for local dev, then Helvetica.
@@ -183,11 +189,73 @@ def fetch_video_meta(video_id: str) -> dict:
     except Exception:
         return {"title": "", "thumbnail": f"https://img.youtube.com/vi/{video_id}/mqdefault.jpg"}
 
+# in-memory per-IP daily counter — resets on restart, good enough to stop abuse
+_ai_usage = {}
+
+
+def _client_ip():
+    return (
+        request.headers.get("CF-Connecting-IP")
+        or request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+        or request.remote_addr
+        or "?"
+    )
+
+
+def check_ai_quota():
+    """Return an error response if this IP is over today's AI quota, else None."""
+    ip = _client_ip()
+    today = time.strftime("%Y-%m-%d")
+    day, count = _ai_usage.get(ip, (today, 0))
+    if day != today:
+        count = 0
+    if count >= DAILY_AI_LIMIT:
+        return jsonify({"error": "Daily AI limit reached — try again tomorrow. 今日 AI 用量已滿，聽日再嚟。"}), 429
+    _ai_usage[ip] = (today, count + 1)
+    if len(_ai_usage) > 10000:
+        _ai_usage.clear()
+    return None
+
+
 # ─── Routes ───────────────────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return render_template("index.html", site_url=SITE_URL, adsense_client=ADSENSE_CLIENT)
+
+
+@app.route("/privacy")
+def privacy():
+    return render_template("privacy.html")
+
+
+@app.route("/terms")
+def terms():
+    return render_template("terms.html")
+
+
+@app.route("/ads.txt")
+def ads_txt():
+    pub = ADSENSE_CLIENT[3:] if ADSENSE_CLIENT.startswith("ca-") else ADSENSE_CLIENT
+    body = f"google.com, {pub}, DIRECT, f08c47fec0942fa0\n" if pub else ""
+    return Response(body, mimetype="text/plain")
+
+
+@app.route("/robots.txt")
+def robots_txt():
+    lines = ["User-agent: *", "Allow: /"]
+    if SITE_URL:
+        lines.append(f"Sitemap: {SITE_URL}/sitemap.xml")
+    return Response("\n".join(lines) + "\n", mimetype="text/plain")
+
+
+@app.route("/sitemap.xml")
+def sitemap_xml():
+    base = SITE_URL or request.url_root.rstrip("/")
+    urls = "".join(f"<url><loc>{base}{p}</loc></url>" for p in ("/", "/privacy", "/terms"))
+    xml = ('<?xml version="1.0" encoding="UTF-8"?>'
+           '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' + urls + "</urlset>")
+    return Response(xml, mimetype="application/xml")
 
 
 @app.route("/transcript", methods=["POST"])
@@ -280,10 +348,13 @@ def process():
 
     if not transcript_text:
         return jsonify({"error": "No transcript provided."}), 400
+    over = check_ai_quota()
+    if over:
+        return over
 
     lang_instruction = LANG_INSTRUCTIONS.get(lang, LANG_INSTRUCTIONS["hk"])
     system_prompt = BASE_SYSTEM_PROMPT.format(lang_instruction=lang_instruction)
-    user_prompt = f"Here is the podcast transcript to process:\n\n{transcript_text}"
+    user_prompt = f"Here is the podcast transcript to process:\n\n{transcript_text[:MAX_AI_INPUT_CHARS]}"
 
     return Response(
         stream_with_context(stream_deepseek(system_prompt, user_prompt)),
@@ -300,10 +371,13 @@ def summarise():
 
     if not transcript_text:
         return jsonify({"error": "No transcript provided."}), 400
+    over = check_ai_quota()
+    if over:
+        return over
 
     lang_instruction = SUMMARY_LANG_INSTRUCTIONS.get(lang, SUMMARY_LANG_INSTRUCTIONS["hk"])
     system_prompt = SUMMARY_SYSTEM_PROMPT.format(lang_instruction=lang_instruction)
-    user_prompt = f"Here is the transcript:\n\n{transcript_text}"
+    user_prompt = f"Here is the transcript:\n\n{transcript_text[:MAX_AI_INPUT_CHARS]}"
 
     return Response(
         stream_with_context(stream_deepseek(system_prompt, user_prompt)),
@@ -320,10 +394,13 @@ def brief():
 
     if not transcript_text:
         return jsonify({"error": "No transcript provided."}), 400
+    over = check_ai_quota()
+    if over:
+        return over
 
     lang_instruction = SUMMARY_LANG_INSTRUCTIONS.get(lang, SUMMARY_LANG_INSTRUCTIONS["hk"])
     system_prompt = BRIEF_SUMMARY_SYSTEM_PROMPT.format(lang_instruction=lang_instruction)
-    user_prompt = f"Here is the transcript:\n\n{transcript_text}"
+    user_prompt = f"Here is the transcript:\n\n{transcript_text[:MAX_AI_INPUT_CHARS]}"
 
     return Response(
         stream_with_context(stream_deepseek(system_prompt, user_prompt)),

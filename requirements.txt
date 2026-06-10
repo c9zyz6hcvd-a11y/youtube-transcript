@@ -1,6 +1,6 @@
 flask
 youtube-transcript-api
-google-genai
+openai
 python-docx
 reportlab
 gunicorn
