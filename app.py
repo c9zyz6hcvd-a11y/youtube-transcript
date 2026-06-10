@@ -8,8 +8,7 @@ import urllib.request
 from docx import Document
 from docx.shared import Pt, RGBColor, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from google import genai
-from google.genai import types
+from openai import OpenAI
 from flask import Flask, Response, render_template, request, jsonify, stream_with_context, send_file
 from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
 
@@ -83,6 +82,67 @@ LANG_INSTRUCTIONS = {
     "ko": "Output in natural Korean (한국어). Write clearly and naturally. Add a 3–5 bullet point summary in Korean at the very top.",
 }
 
+SUMMARY_LANG_INSTRUCTIONS = {
+    "hk": "Write the entire summary in Hong Kong Traditional Chinese (繁體中文). Use clear, natural written Chinese — not overly casual, but readable.",
+    "tw": "Write the entire summary in Taiwan Traditional Chinese (繁體中文).",
+    "cn": "Write the entire summary in Simplified Chinese (簡體中文).",
+    "en": "Write the entire summary in clear, natural English.",
+    "ja": "Write the entire summary in Japanese (日本語).",
+    "ko": "Write the entire summary in Korean (한국어).",
+}
+
+SUMMARY_SYSTEM_PROMPT = """\
+You are an expert at extracting and organising information from video transcripts.
+
+Your task: produce a COMPREHENSIVE and DETAILED summary of the transcript below. Your goal is to capture every important piece of information — nothing significant should be missing.
+
+{lang_instruction}
+
+Structure your output as follows:
+
+## 核心重點 / Key Takeaways
+5–10 bullet points of the most critical points. Be specific — include numbers, names, facts.
+
+## 詳細內容 / Detailed Notes
+Go through the content section by section (use ## headings for each major topic).
+For each section:
+- Explain the key ideas in full
+- Include specific data, statistics, examples, or quotes mentioned
+- Do NOT skip over any topic that was discussed for more than a few sentences
+
+## 重要細節 / Important Details
+A bullet list of specific facts, figures, names, dates, tools, or resources mentioned that are easy to miss but valuable.
+
+## 結論 / Conclusion
+What was the overall message or call to action? What should the viewer take away and do?
+
+Be thorough. It is better to include too much than to miss something important.\
+"""
+
+BRIEF_SUMMARY_SYSTEM_PROMPT = """\
+You are an expert at summarising video transcripts.
+
+Your task: produce a MEDIUM-LENGTH summary — more than a quick glance, but much shorter than a full detailed breakdown. Aim for something a person can read in 3–5 minutes even for a long podcast.
+
+{lang_instruction}
+
+Structure your output as follows:
+
+## 一句話總結 / TL;DR
+One sentence capturing the core message.
+
+## 主要重點 / Key Points
+8–12 bullet points. Cover all the significant topics discussed. Be specific — include names, numbers, examples where relevant. Do not merge unrelated points together.
+
+## 各段落重點 / Section Highlights
+3–6 short paragraphs (2–4 sentences each), each covering a major theme or segment of the content. Give enough detail that the reader understands what was actually said, not just that the topic was mentioned.
+
+## 結論 / Takeaway
+2–3 sentences. What is the main message and what should the reader do or remember?
+
+Be thorough enough to cover a long podcast, but do not go into exhaustive detail on every point.\
+"""
+
 BASE_SYSTEM_PROMPT = """\
 You are a podcast transcript editor and translator.
 Follow these steps:
@@ -104,7 +164,7 @@ Speaker identification — this is important:
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
-def extract_video_id(url: str) -> str | None:
+def extract_video_id(url: str):
     match = re.search(r"(?:v=|youtu\.be/|embed/|shorts/)([A-Za-z0-9_-]{11})", url)
     return match.group(1) if match else None
 
@@ -174,6 +234,44 @@ def transcript():
         return jsonify({"error": str(e)}), 500
 
 
+def stream_deepseek(system_prompt: str, user_prompt: str):
+    """Shared SSE generator using DeepSeek API."""
+    api_key = os.environ.get("DEEPSEEK_API_KEY")
+    if not api_key:
+        yield f"data: {json.dumps({'error': 'DEEPSEEK_API_KEY is not set.'})}\n\n"
+        return
+
+    client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+
+    for attempt in range(3):
+        try:
+            stream = client.chat.completions.create(
+                model="deepseek-v4-flash",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user",   "content": user_prompt},
+                ],
+                stream=True,
+                # v4-flash 預設思考mode，transcript 清理唔需要，熄咗佢（快+平）
+                extra_body={"thinking": {"type": "disabled"}},
+            )
+            for chunk in stream:
+                text = chunk.choices[0].delta.content or ""
+                if text:
+                    yield f"data: {json.dumps({'text': text})}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+        except Exception as e:
+            error_msg = str(e)
+            m = re.search(r'retry in (\d+\.?\d*)s', error_msg)
+            if m and attempt < 2:
+                wait = min(float(m.group(1)) + 2, 65)
+                yield f"data: {json.dumps({'status': f'Rate limited — retrying in {int(wait)}s…'})}\n\n"
+                time.sleep(wait)
+                continue
+            yield f"data: {json.dumps({'error': error_msg})}\n\n"
+
+
 @app.route("/process", methods=["POST"])
 def process():
     data = request.get_json()
@@ -183,41 +281,52 @@ def process():
     if not transcript_text:
         return jsonify({"error": "No transcript provided."}), 400
 
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        return jsonify({"error": "GEMINI_API_KEY is not set. Get a free key at aistudio.google.com."}), 500
-
     lang_instruction = LANG_INSTRUCTIONS.get(lang, LANG_INSTRUCTIONS["hk"])
-    prompt = BASE_SYSTEM_PROMPT.format(lang_instruction=lang_instruction)
-    prompt += f"\n\nHere is the podcast transcript to process:\n\n{transcript_text}"
-
-    def generate():
-        for attempt in range(3):
-            try:
-                client = genai.Client(api_key=api_key)
-                for chunk in client.models.generate_content_stream(
-                    model="gemini-2.5-flash",
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        thinking_config=types.ThinkingConfig(thinking_budget=0)
-                    ),
-                ):
-                    if chunk.text:
-                        yield f"data: {json.dumps({'text': chunk.text})}\n\n"
-                yield "data: [DONE]\n\n"
-                return
-            except Exception as e:
-                error_msg = str(e)
-                m = re.search(r'retry in (\d+\.?\d*)s', error_msg)
-                if m and attempt < 2:
-                    wait = min(float(m.group(1)) + 2, 65)
-                    yield f"data: {json.dumps({'status': f'Rate limited — retrying in {int(wait)}s…'})}\n\n"
-                    time.sleep(wait)
-                    continue
-                yield f"data: {json.dumps({'error': error_msg})}\n\n"
+    system_prompt = BASE_SYSTEM_PROMPT.format(lang_instruction=lang_instruction)
+    user_prompt = f"Here is the podcast transcript to process:\n\n{transcript_text}"
 
     return Response(
-        stream_with_context(generate()),
+        stream_with_context(stream_deepseek(system_prompt, user_prompt)),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.route("/summarise", methods=["POST"])
+def summarise():
+    data = request.get_json()
+    transcript_text = (data or {}).get("transcript", "").strip()
+    lang = (data or {}).get("language", "hk")
+
+    if not transcript_text:
+        return jsonify({"error": "No transcript provided."}), 400
+
+    lang_instruction = SUMMARY_LANG_INSTRUCTIONS.get(lang, SUMMARY_LANG_INSTRUCTIONS["hk"])
+    system_prompt = SUMMARY_SYSTEM_PROMPT.format(lang_instruction=lang_instruction)
+    user_prompt = f"Here is the transcript:\n\n{transcript_text}"
+
+    return Response(
+        stream_with_context(stream_deepseek(system_prompt, user_prompt)),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.route("/brief", methods=["POST"])
+def brief():
+    data = request.get_json()
+    transcript_text = (data or {}).get("transcript", "").strip()
+    lang = (data or {}).get("language", "hk")
+
+    if not transcript_text:
+        return jsonify({"error": "No transcript provided."}), 400
+
+    lang_instruction = SUMMARY_LANG_INSTRUCTIONS.get(lang, SUMMARY_LANG_INSTRUCTIONS["hk"])
+    system_prompt = BRIEF_SUMMARY_SYSTEM_PROMPT.format(lang_instruction=lang_instruction)
+    user_prompt = f"Here is the transcript:\n\n{transcript_text}"
+
+    return Response(
+        stream_with_context(stream_deepseek(system_prompt, user_prompt)),
         mimetype="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
