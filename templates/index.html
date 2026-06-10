@@ -246,6 +246,36 @@
     button#process-btn:hover { opacity: 0.88; }
     button#process-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
+    button#summary-btn {
+      background: linear-gradient(135deg, #0d9488, #0891b2);
+      border: none;
+      border-radius: 8px;
+      padding: 10px 22px;
+      color: #fff;
+      font-size: 0.92rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s;
+      white-space: nowrap;
+    }
+    button#summary-btn:hover { opacity: 0.88; }
+    button#summary-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    button#brief-btn {
+      background: linear-gradient(135deg, #7c3aed, #a855f7);
+      border: none;
+      border-radius: 8px;
+      padding: 10px 22px;
+      color: #fff;
+      font-size: 0.92rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s;
+      white-space: nowrap;
+    }
+    button#brief-btn:hover { opacity: 0.88; }
+    button#brief-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
     select#lang-select {
       background: #2a2a2a;
       border: 1px solid #383838;
@@ -404,6 +434,8 @@
       <div class="tab-row">
         <div class="tab active" id="tab-plain" onclick="switchTab('plain')">Plain text</div>
         <div class="tab"        id="tab-ai"    onclick="switchTab('ai')">AI 整理</div>
+        <div class="tab"        id="tab-brief"   onclick="switchTab('brief')">⚡ 快速摘要</div>
+        <div class="tab"        id="tab-summary" onclick="switchTab('summary')">📋 詳細摘要</div>
       </div>
 
       <div class="tab-panel active" id="panel-plain">
@@ -412,6 +444,12 @@
       </div>
       <div class="tab-panel" id="panel-ai">
         <textarea id="ai-output" readonly placeholder="Click ✦ AI 整理 below to start…"></textarea>
+      </div>
+      <div class="tab-panel" id="panel-brief">
+        <textarea id="brief-output" readonly placeholder="Click ⚡ 快速摘要 below to start…"></textarea>
+      </div>
+      <div class="tab-panel" id="panel-summary">
+        <textarea id="summary-output" readonly placeholder="Click 📋 詳細摘要 below to start…"></textarea>
       </div>
 
       <div class="actions">
@@ -425,6 +463,8 @@
       <!-- AI bar -->
       <div class="ai-bar">
         <button id="process-btn" onclick="processTranscript()">✦ AI 整理</button>
+        <button id="brief-btn"   onclick="briefTranscript()">⚡ 快速摘要</button>
+        <button id="summary-btn" onclick="summariseTranscript()">📋 詳細摘要</button>
         <select id="lang-select">
           <option value="hk">香港繁體中文</option>
           <option value="tw">台灣繁體中文</option>
@@ -455,6 +495,7 @@
     let data = null;
     let currentTab = 'plain';
     let aiDone = false;
+    let summaryDone = false;
 
     // ─── History (localStorage) ──────────────────────────────────────────────
 
@@ -579,7 +620,9 @@
       spinner.style.display = 'block';
 
       aiDone = false;
+      summaryDone = false;
       document.getElementById('ai-output').value = '';
+      document.getElementById('summary-output').value = '';
       document.getElementById('ai-status').textContent = '';
       document.getElementById('plain-count').textContent = '';
       showExportButtons(false);
@@ -647,11 +690,11 @@
 
     function switchTab(tab) {
       currentTab = tab;
-      ['plain', 'ai'].forEach(t => {
+      ['plain', 'ai', 'brief', 'summary'].forEach(t => {
         document.getElementById('tab-'   + t).classList.toggle('active', t === tab);
         document.getElementById('panel-' + t).classList.toggle('active', t === tab);
       });
-      showExportButtons(tab === 'ai' && aiDone);
+      showExportButtons((tab === 'ai' && aiDone) || (tab === 'summary' && summaryDone));
     }
 
     // ─── AI processing ───────────────────────────────────────────────────────
@@ -739,12 +782,177 @@
       }
     }
 
+    // ─── Summarise ───────────────────────────────────────────────────────────
+
+    async function summariseTranscript() {
+      if (!data) return;
+
+      const btn      = document.getElementById('summary-btn');
+      const statusEl = document.getElementById('ai-status');
+      const output   = document.getElementById('summary-output');
+      const lang     = document.getElementById('lang-select').value;
+
+      btn.disabled = true;
+      btn.textContent = '整理中…';
+      statusEl.textContent = '';
+      output.value = '';
+      summaryDone = false;
+      showExportButtons(false);
+
+      switchTab('summary');
+
+      try {
+        const response = await fetch('/summarise', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ transcript: data.plain, language: lang }),
+        });
+
+        if (!response.ok) {
+          const json = await response.json();
+          output.value = '錯誤：' + (json.error || 'Something went wrong.');
+          return;
+        }
+
+        const reader  = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let charCount = 0;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop();
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const payload = line.slice(6);
+            if (payload === '[DONE]') {
+              summaryDone = true;
+              showExportButtons(true);
+              const fullText = output.value;
+              const zhChars  = (fullText.match(/[一-鿿]/g) || []).length;
+              const enWords  = (fullText.match(/\b[a-zA-Z]+\b/g) || []).length;
+              statusEl.textContent = `${(zhChars + enWords).toLocaleString()} words`;
+              break;
+            }
+            try {
+              const parsed = JSON.parse(payload);
+              if (parsed.status) {
+                statusEl.textContent = parsed.status;
+              } else if (parsed.error) {
+                output.value += '\n\n錯誤：' + parsed.error;
+              } else if (parsed.text) {
+                const clean = parsed.text.replace(/\*\*/g, '');
+                output.value += clean;
+                charCount += clean.length;
+                statusEl.textContent = charCount + ' 字';
+                output.scrollTop = output.scrollHeight;
+              }
+            } catch {}
+          }
+        }
+
+      } catch (e) {
+        output.value = 'Network error: ' + e.message;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '📋 詳細摘要';
+        if (!summaryDone) statusEl.textContent = '';
+      }
+    }
+
+    // ─── Brief summary ───────────────────────────────────────────────────────
+
+    async function briefTranscript() {
+      if (!data) return;
+
+      const btn      = document.getElementById('brief-btn');
+      const statusEl = document.getElementById('ai-status');
+      const output   = document.getElementById('brief-output');
+      const lang     = document.getElementById('lang-select').value;
+
+      btn.disabled = true;
+      btn.textContent = '整理中…';
+      statusEl.textContent = '';
+      output.value = '';
+      showExportButtons(false);
+
+      switchTab('brief');
+
+      try {
+        const response = await fetch('/brief', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ transcript: data.plain, language: lang }),
+        });
+
+        if (!response.ok) {
+          const json = await response.json();
+          output.value = '錯誤：' + (json.error || 'Something went wrong.');
+          return;
+        }
+
+        const reader  = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let charCount = 0;
+        let briefDone = false;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop();
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const payload = line.slice(6);
+            if (payload === '[DONE]') {
+              briefDone = true;
+              const fullText = output.value;
+              const zhChars  = (fullText.match(/[一-鿿]/g) || []).length;
+              const enWords  = (fullText.match(/\b[a-zA-Z]+\b/g) || []).length;
+              statusEl.textContent = `${(zhChars + enWords).toLocaleString()} words`;
+              break;
+            }
+            try {
+              const parsed = JSON.parse(payload);
+              if (parsed.status) {
+                statusEl.textContent = parsed.status;
+              } else if (parsed.error) {
+                output.value += '\n\n錯誤：' + parsed.error;
+              } else if (parsed.text) {
+                const clean = parsed.text.replace(/\*\*/g, '');
+                output.value += clean;
+                charCount += clean.length;
+                statusEl.textContent = charCount + ' 字';
+                output.scrollTop = output.scrollHeight;
+              }
+            } catch {}
+          }
+        }
+
+      } catch (e) {
+        output.value = 'Network error: ' + e.message;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '⚡ 快速摘要';
+      }
+    }
+
     // ─── Copy / Download ─────────────────────────────────────────────────────
 
     function currentText() {
-      return currentTab === 'ai'
-        ? document.getElementById('ai-output').value
-        : document.getElementById('output-plain').value;
+      if (currentTab === 'ai') return document.getElementById('ai-output').value;
+      if (currentTab === 'brief') return document.getElementById('brief-output').value;
+      if (currentTab === 'summary') return document.getElementById('summary-output').value;
+      return document.getElementById('output-plain').value;
     }
 
     function copyText() {
